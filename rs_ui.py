@@ -7,13 +7,14 @@ from matplotlib.pyplot import text
 import pandas as pd
 import numpy as np
 
-import rs_1
+import rs_sampler
 
 class Program:
     def main(self, stdscr):
         self.OPTIONS = [("BROWSE", self.browse), ("RECOMMENDATIONS", self.recommend), ("HELP", self.display_help), ("EXIT", exit)]
         self.HELP = ["BROWSE lets you view various venues from a selection.", "RECOMMENDATIONS provides you with a selection of venues based on your browsing habits."]
         self.FILTERING = ["Use content based filtering.", "Use collaborative based filtering."]
+        self.WARNING = ["Date is collected on every input, including selection of items.", "You can exit at any time by entering (  x  )."]
 
         self.stdscr = stdscr
         self.lines = []
@@ -22,11 +23,11 @@ class Program:
 
         self.print_lines(self.FILTERING, True)
         mode = int(self.take_input())
-        self.print_lines()
+        self.print_lines(self.WARNING, quitOption=True)
         self.username = self.take_input("Please enter your name to continue")
 
         if mode == 1:
-            self.df = rs_1.initialize_sample(200)
+            self.df = rs_sampler.initialize_sample(200)
 
             # Initial matrix of data
             self.vdf = self.df.iloc[:, 14:]
@@ -59,11 +60,12 @@ class Program:
                 self.vdf["user"].to_csv(f"./user_files/{self.username}.csv")
             else:
                 userdf = pd.read_csv(f"./user_files/{self.username}.csv", index_col=0)
-                self.vdf = pd.concat([self.vdf, userdf])
+                self.vdf = self.vdf.join(userdf)
         
             # Fill a column with the index of each row so that we can refer 
             # to the correct row in vdf and vdfNormalized later.
             self.df["index"] = range(0, len(self.df))
+
         elif mode == 2:
             exit()
 
@@ -92,8 +94,8 @@ class Program:
                 index += 1
         else:
             self.lines = text
+        self.lines.append("")
         if menuReturnOption:
-            self.lines.append("")
             self.lines.append("(  m  ) Return to the previous menu")
         if quitOption:
             self.lines.append("(  x  ) Quit program")
