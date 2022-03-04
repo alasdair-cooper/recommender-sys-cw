@@ -28,33 +28,18 @@ KM_TO_MILES = 1 / 1.609344
 DAYS_OF_THE_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] 
 ATTRIBUTES = ["RestaurantsTakeOut", "RestaurantsDelivery", "WheelchairAccessible", "DogsAllowed"]
 
+FEATURES = [ "name", "address", "city", "state", "postal_code", "stars", "hours.Monday", "hours.Tuesday", "hours.Wednesday", "hours.Thursday", "hours.Friday", "hours.Saturday", "hours.Sunday", "categories", "attributes.RestaurantsTakeOut", "attributes.RestaurantsDelivery", "attributes.WheelchairAccessible", "attributes.DogsAllowed"]
+
+FILEPATH = "./yelp_dataset.nxvcfk/yelp_academic_dataset_business"
+
 def initialize_data_full(convert: bool) -> pd.DataFrame:
-    if convert or not exists("./yelp_dataset.nxvcfk/yelp_academic_dataset_business.csv"):
-        column_names = json_to_csv_converter.get_superset_of_column_names_from_file("./yelp_dataset.nxvcfk/yelp_academic_dataset_business.json")
-        json_to_csv_converter.read_and_write_file("./yelp_dataset.nxvcfk/yelp_academic_dataset_business.json", "./yelp_dataset.nxvcfk/yelp_academic_dataset_business.csv", column_names)
-        df = pd.read_csv("./yelp_dataset.nxvcfk/yelp_academic_dataset_business.csv")    
+    if convert or not exists(f"{FILEPATH}.csv"):
+        column_names = json_to_csv_converter.get_superset_of_column_names_from_file(f"{FILEPATH}.json")
+        json_to_csv_converter.read_and_write_file(f"{FILEPATH}.json", f"{FILEPATH}.csv", column_names)
+        df = pd.read_csv(f"{FILEPATH}.csv")    
         df = df.sample(1000, random_state=1)
         df = df[df["is_open"] == 1]
-        df = df[[
-        "name", 
-        "address",
-        "city",
-        "state",
-        "postal_code",
-        "stars", 
-        "hours.Monday",
-        "hours.Tuesday", 
-        "hours.Wednesday", 
-        "hours.Thursday", 
-        "hours.Friday", 
-        "hours.Saturday", 
-        "hours.Sunday", 
-        "categories", 
-        "attributes.RestaurantsTakeOut", 
-        "attributes.RestaurantsDelivery", 
-        "attributes.WheelchairAccessible", 
-        "attributes.DogsAllowed"
-        ]]
+        df = df[FEATURES]
         for idx, row in df.iterrows():
             categories = str(row.categories)
             for category in categories.split(", "):
@@ -63,15 +48,15 @@ def initialize_data_full(convert: bool) -> pd.DataFrame:
                 df.loc[idx, f"category.{category}"] = 1
         df.pop("categories")
         df.fillna(0, inplace=True)
-        df.to_csv("./yelp_dataset.nxvcfk/yelp_academic_dataset_business.csv")
+        df.to_csv(f"{FILEPATH}.csv")
     else:
-        df = pd.read_csv("./yelp_dataset.nxvcfk/yelp_academic_dataset_business.csv", index_col=0)    
+        df = pd.read_csv(f"{FILEPATH}.csv", index_col=0)    
     return df
 
 def initialize_sample(sampleSize: int) -> pd.DataFrame:
     df = initialize_data_full(False)
 
-    df = df.sample(sampleSize, random_state=1)
+    df = df.sample(min(len(df), sampleSize), random_state=1)
    
     for attribute in ATTRIBUTES:
         # Convert bool strings to float for vector calc later 

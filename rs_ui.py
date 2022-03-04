@@ -1,11 +1,16 @@
 import curses
 from curses.textpad import Textbox, rectangle
+from lib2to3.pgen2.pgen import DFAState
 import os
-from matplotlib import lines
-from matplotlib.pyplot import text
+
+from lightfm import LightFM
+
+from scipy.sparse import csr_matrix , random, vstack
 
 import pandas as pd
 import numpy as np
+
+import implicit
 
 import rs_sampler
 
@@ -21,53 +26,47 @@ class Program:
 
         self.y_max, self.x_max = self.stdscr.getmaxyx()
 
-        self.print_lines(self.FILTERING, True)
-        mode = int(self.take_input())
         self.print_lines(self.WARNING, quitOption=True)
         self.username = self.take_input("Please enter your name to continue")
 
-        if mode == 1:
-            self.df = rs_sampler.initialize_sample(200)
+        self.df = rs_sampler.initialize_sample(200)
 
-            # Initial matrix of data
-            self.vdf = self.df.iloc[:, 14:]
+        # Initial matrix of data
+        self.vdf = self.df.iloc[:, 14:]
 
-            self.udf = pd.DataFrame(columns=self.vdf.columns)
-            self.udf.loc[len(self.udf)] = 0 
+        self.udf = pd.DataFrame(columns=self.vdf.columns)
+        self.udf.loc[len(self.udf)] = 0 
 
-            # Inverse DF
-            self.idf = pd.DataFrame(columns=self.vdf.columns)
-            self.idf.loc[len(self.idf)] = 1 / (1 + self.vdf.sum(axis=0))
+        # Inverse DF
+        self.idf = pd.DataFrame(columns=self.vdf.columns)
+        self.idf.loc[len(self.idf)] = 1 / (1 + self.vdf.sum(axis=0))
 
-            # Normalized matrix of data
-            self.vdfNormalized = self.vdf.copy(deep=True)
-            self.vdfNormalized["sum"] = self.vdfNormalized.sum(axis=1)
-            self.vdfNormalized["sum"] = self.vdfNormalized["sum"]**0.5
-            # Divide entries by root of sum of features in row
-            self.vdfNormalized = self.vdfNormalized.div(self.vdfNormalized["sum"], axis=0)
-            # Remove temp sum column
-            self.vdfNormalized.pop("sum")
+        # Normalized matrix of data
+        self.vdfNormalized = self.vdf.copy(deep=True)
+        self.vdfNormalized["sum"] = self.vdfNormalized.sum(axis=1)
+        self.vdfNormalized["sum"] = self.vdfNormalized["sum"]**0.5
+        # Divide entries by root of sum of features in row
+        self.vdfNormalized = self.vdfNormalized.div(self.vdfNormalized["sum"], axis=0)
+        # Remove temp sum column
+        self.vdfNormalized.pop("sum")
 
-            for col in self.udf.columns:
-                self.udf[col].values[:] = 0
+        for col in self.udf.columns:
+            self.udf[col].values[:] = 0
 
-            # Create empty column to store a prediction for each item
-            self.vdf["pred"] = 0
+        # Create empty column to store a prediction for each item
+        self.df["pred"] = 0
 
-            # Matrix of user interests
-            if not os.path.exists(f"./user_files/{self.username}.csv"):
-                self.vdf["user"] = 0
-                self.vdf["user"].to_csv(f"./user_files/{self.username}.csv")
-            else:
-                userdf = pd.read_csv(f"./user_files/{self.username}.csv", index_col=0)
-                self.vdf = self.vdf.join(userdf)
-        
-            # Fill a column with the index of each row so that we can refer 
-            # to the correct row in vdf and vdfNormalized later.
-            self.df["index"] = range(0, len(self.df))
-
-        elif mode == 2:
-            exit()
+        # Matrix of user interests
+        if not os.path.exists(f"./user_files/{self.username}.csv"):
+            self.vdf["user"] = 0
+            self.vdf["user"].to_csv(f"./user_files/{self.username}.csv")
+        else:
+            userdf = pd.read_csv(f"./user_files/{self.username}.csv", index_col=0)
+            self.vdf = self.vdf.join(userdf)
+    
+        # Fill a column with the index of each row so that we can refer 
+        # to the correct row in vdf and vdfNormalized later.
+        self.df["index"] = range(0, len(self.df))
 
         while True:
             self.command_lines()
@@ -101,19 +100,21 @@ class Program:
             self.lines.append("(  x  ) Quit program")
         self.redraw()
 
-    def take_input(self, instruction = "Please enter an option from above to continue"):
+    def take_input(self, instruction = "Please enter an option from above to continue", requiredType = str):
         input_string = ""
-        while not ':' in input_string: 
+        split_string = ""
+        while not ':' in input_string and split_string is not requiredType: 
             input_string = ""
             input_box = Textbox(curses.newwin(1, self.x_max-2, self.y_max-1, 1))
             for char in f"{instruction}: ":
                 input_box.do_command(char)
             input_string = input_box.edit()
+            split_string = input_string.split(": ", 1)[1].strip()
         input_string = input_string.split(": ", 1)[1].strip()
         self.redraw()
         if(input_string == "x"):
             exit()
-        return input_string
+        return requiredType(input_string)
 
     def enter_input(self):
         self.take_input("Press enter to continue")
@@ -147,16 +148,31 @@ class Program:
             if input == "m":
                 return
             else:
+                sample = self.df.sample(5)
+
+                self.quick_peak_businesses(sample)
+
                 business = sample.iloc[int(input) - 1]
+                i = 1
+                for index, row in sample.iterrows():
+                    if i == int(input) - 1:
+                        # Modify the 'user' column value if the user shows slight interest
+                        self.vdf.iloc[row["index"], -1] += 1
+                    else:
+                        # Modify the 'user' column value if the user ignores this in favour of another
+                        self.vdf.iloc[row["index"], -1] -= 1
+                    i += 1
                 inputReturned = self.view_business(business)
                 score = 0
 
                 if inputReturned.lower() == "y" or inputReturned.lower() == "yes":
-                    # Modify the 'user' column value
+                    # Modify the 'user' column value if the user likes the 
                     self.vdf.iloc[business["index"], -1] += 2
-                else:
-                    # Modify the 'user' column value
+                elif inputReturned.lower() == "n" or inputReturned.lower() == "no":
+                    # Modify the 'user' column value if the user dislikes the 
                     self.vdf.iloc[business["index"], -1] -= 2 
+                elif inputReturned == "m":
+                    return
 
                 # Separate index as pandas preserves index after sample
                 for label, value in self.udf.iloc[0, :].iteritems():
@@ -164,20 +180,24 @@ class Program:
                 
                 i = 0
                 for index, row in self.vdfNormalized.iterrows():
-                    self.vdf.pred.iloc[i] = sum(self.udf.iloc[0] * self.idf.iloc[0] * self.vdfNormalized.iloc[i])
+                    self.df.pred.iloc[i] = sum(self.udf.iloc[0] * self.idf.iloc[0] * self.vdfNormalized.iloc[i])
                     i += 1
                 
                 self.vdf.user.to_csv(f"./user_files/{self.username}.csv")
-                self.vdf["pred"].to_csv(f"./user_files/{self.username}_pred.csv")
-                
+                self.df["pred"].to_csv(f"./user_files/{self.username}_pred.csv")
+                self.df.to_csv(f"./user_files/{self.username}_df.csv")
+    
+    def quick_peak_businesses(self, df: pd.DataFrame):
+        linesToPrint = []  
+        df.apply(lambda x: linesToPrint.append(f"{x['name']} in {x['city']} has {x['stars']} stars: {self.get_categories_in_row(x)}"), axis=1)
+        self.print_lines(linesToPrint, True, True, True)
+
     def view_business(self, df: pd.DataFrame):
         linesToPrint = []
         categories = "categories: "
         hours = "open: "
         attributes = "extra info: "
         index = 0
-        # Modify the 'user' column value
-        self.vdf.iloc[df["index"], -1] += 1
         for label, value in df.iteritems():
             labelSplit = iter(label.split("."))
             prefix = next(labelSplit, "")
@@ -215,7 +235,24 @@ class Program:
         return input
 
     def recommend(self):
-        print()
+        self.print_lines(self.FILTERING, True)
+        mode = self.take_input()
+        if mode == "m":
+            return
+        mode = int(mode)
+        if mode == 1:
+            grouped = self.df.sort_values("pred", ascending=False).head(5)
+            self.quick_peak_businesses(grouped)
+        elif mode == 2:
+            model = implicit.als.AlternatingLeastSquares(factors=50)
+            currentUser = self.vdf.user.values
+            currentUserNormalised = (currentUser - np.min(currentUser)) / (np.max(currentUser) - np.min(currentUser))
+            user_items = vstack((csr_matrix(currentUserNormalised), (csr_matrix(random(199, len(self.vdf), density=0.25)))))
+            item_user = user_items.T.tocsr()
+            model.fit(item_user)
+            recommendations = model.recommend(0, user_items[0])
+            self.quick_peak_businesses(self.df[self.df["index"].isin(recommendations[0])].head(5))
+        self.enter_input()
 
     def display_help(self):
         self.print_lines(self.HELP)
