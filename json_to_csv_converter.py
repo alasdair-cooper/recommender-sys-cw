@@ -1,3 +1,5 @@
+# From https://github.com/Yelp/dataset-examples
+
 """Convert the Yelp Dataset Challenge dataset from json format to csv.
 
 For more information on the Yelp Dataset Challenge please visit http://yelp.com/dataset_challenge
